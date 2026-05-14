@@ -26,4 +26,5 @@ jobs:
       - name: Deploy to Cloudflare Pages
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: 26ea8f48c699b4def4bb9896627ff296
         run: wrangler pages deploy . --project-name=random-seat --branch=main
