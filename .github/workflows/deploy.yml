@@ -20,9 +20,10 @@ jobs:
           HASH=$(git rev-parse HEAD)
           sed -i "s/__GIT_HASH__/$HASH/" index.html
 
+      - name: Install Wrangler
+        run: npm install -g wrangler
+
       - name: Deploy to Cloudflare Pages
-        uses: cloudflare/wrangler-action@v3
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
-        with:
-          command: pages deploy . --project-name=random-seat --branch=main
+        run: wrangler pages deploy . --project-name=random-seat --branch=main
