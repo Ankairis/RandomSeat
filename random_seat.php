@@ -1,0 +1,761 @@
+<?php
+// ————— 会话持久化 —————
+$sess_dir = __DIR__ . '/data/sessions';
+if (!is_dir($sess_dir)) @mkdir($sess_dir, 0755, true);
+if (is_dir($sess_dir) && is_writable($sess_dir)) session_save_path($sess_dir);
+ini_set('session.gc_maxlifetime', 365 * 86400);
+session_set_cookie_params(['lifetime' => 365 * 86400, 'path' => '/', 'httponly' => true, 'samesite' => 'Lax']);
+session_start();
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    header('Content-Type: application/json; charset=utf-8');
+    $action = $_POST['action'] ?? '';
+
+    if ($action === 'save') {
+        $_SESSION['seat_cols'] = (int)($_POST['cols'] ?? 7);
+        $_SESSION['seat_rows'] = (int)($_POST['rows'] ?? 7);
+        $_SESSION['seat_grid'] = json_decode($_POST['grid'] ?? '[]', true);
+        echo json_encode(['ok' => true]);
+        exit;
+    }
+    if ($action === 'load') {
+        echo json_encode([
+            'ok' => true,
+            'cols' => $_SESSION['seat_cols'] ?? 7,
+            'rows' => $_SESSION['seat_rows'] ?? 7,
+            'grid' => $_SESSION['seat_grid'] ?? null,
+        ]);
+        exit;
+    }
+    if ($action === 'reset') {
+        unset($_SESSION['seat_cols'], $_SESSION['seat_rows'], $_SESSION['seat_grid']);
+        echo json_encode(['ok' => true]);
+        exit;
+    }
+    echo json_encode(['ok' => false, 'msg' => '未知操作']);
+    exit;
+}
+?><!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#eaddff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1c1b1f" media="(prefers-color-scheme: dark)">
+<title>随机排座位</title>
+<style>
+:root {
+    color-scheme: light;
+    --primary:        #6750a4;
+    --on-primary:     #ffffff;
+    --primary-container:    #eaddff;
+    --on-primary-container: #21005d;
+    --secondary-container:  #e8def8;
+    --on-secondary-container:#1d192b;
+    --tertiary:       #7d5260;
+    --tertiary-container: #ffd8e4;
+    --surface:        #fef7ff;
+    --surface-container-low: #f7f2fa;
+    --surface-container:     #f3edf7;
+    --surface-container-high:#ece6f0;
+    --on-surface:     #1d1b20;
+    --on-surface-variant: #49454f;
+    --outline:        #79747e;
+    --outline-variant:#cac4d0;
+    --error:          #b3261e;
+    --error-container:#f9dedc;
+    --shadow-key:     0 1px 2px rgba(0,0,0,.06);
+    --shadow-amb:     0 8px 24px rgba(103,80,164,.10);
+    --shadow-float:   0 24px 60px rgba(103,80,164,.18);
+    --easing-std:     cubic-bezier(.2,0,0,1);
+    --easing-emph:    cubic-bezier(.3,0,0,1);
+    --easing-spring:  cubic-bezier(.34,1.56,.64,1);
+    --cell-selected:  #d3e5d3;
+    --cell-selected-border: #81c784;
+    --cell-deselected: #f5f5f5;
+    --cell-deselected-border: #e0e0e0;
+    --cell-assigned:  #fff3cd;
+    --cell-assigned-border: #ffc107;
+    --cell-assigned-text: #856404;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        color-scheme: dark;
+        --primary:        #d0bcff;
+        --on-primary:     #381e72;
+        --primary-container:    #4f378b;
+        --on-primary-container: #eaddff;
+        --secondary-container:  #4a4458;
+        --on-secondary-container:#e8def8;
+        --tertiary:       #efb8c8;
+        --tertiary-container: #633b48;
+        --surface:        #141218;
+        --surface-container-low: #1d1b20;
+        --surface-container:     #211f26;
+        --surface-container-high:#2b2930;
+        --on-surface:     #e6e0e9;
+        --on-surface-variant: #cac4d0;
+        --outline:        #938f99;
+        --outline-variant:#49454f;
+        --error:          #f2b8b5;
+        --error-container:#8c1d18;
+        --shadow-amb:     0 8px 24px rgba(0,0,0,.4);
+        --shadow-float:   0 24px 60px rgba(0,0,0,.55);
+        --cell-selected:  #1b3a1b;
+        --cell-selected-border: #4caf50;
+        --cell-deselected: #1d1b20;
+        --cell-deselected-border: #3a3a3a;
+        --cell-assigned:  #3d3200;
+        --cell-assigned-border: #ffc107;
+        --cell-assigned-text: #ffc107;
+    }
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
+                 "PingFang SC", "Helvetica Neue", "Microsoft YaHei", system-ui, sans-serif;
+    background: var(--surface);
+    color: var(--on-surface);
+    min-height: 100vh;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 28px 20px;
+    overflow-x: hidden;
+    -webkit-font-smoothing: antialiased;
+}
+
+.bg { position: fixed; inset: -10%; z-index: -1; overflow: hidden; pointer-events: none; }
+.blob { position: absolute; width: 60vmax; height: 60vmax; border-radius: 50%; filter: blur(70px); opacity: .55; will-change: transform; }
+.blob.b1 { background: radial-gradient(circle, var(--primary-container), transparent 65%); top: -15%; left: -10%; animation: float1 22s ease-in-out infinite; }
+.blob.b2 { background: radial-gradient(circle, var(--tertiary-container), transparent 65%); bottom: -20%; right: -15%; animation: float2 26s ease-in-out infinite; }
+.blob.b3 { background: radial-gradient(circle, var(--secondary-container), transparent 65%); top: 30%; right: 20%; animation: float3 30s ease-in-out infinite; opacity: .4; }
+@keyframes float1 { 0%,100% { transform: translate(0,0) scale(1); } 50% { transform: translate(8vw, 6vh) scale(1.1); } }
+@keyframes float2 { 0%,100% { transform: translate(0,0) scale(1); } 50% { transform: translate(-10vw, -8vh) scale(.95); } }
+@keyframes float3 { 0%,100% { transform: translate(0,0) scale(1); } 50% { transform: translate(-6vw, 10vh) scale(1.08); } }
+
+.wrap { width: 100%; max-width: 960px; min-width: 0; display: flex; flex-direction: column; gap: 16px; }
+
+/* Card */
+.card {
+    background: color-mix(in srgb, var(--surface-container-low) 78%, transparent);
+    border: 0.5px solid color-mix(in srgb, var(--outline-variant) 50%, transparent);
+    border-radius: 32px;
+    padding: 26px;
+    box-shadow: var(--shadow-float), inset 0 1px 0 rgba(255,255,255,.4);
+    backdrop-filter: saturate(180%) blur(30px);
+    -webkit-backdrop-filter: saturate(180%) blur(30px);
+    animation: cardIn .7s var(--easing-emph) both;
+    overflow: hidden;
+    min-width: 0;
+}
+@media (prefers-color-scheme: dark) {
+    .card { box-shadow: var(--shadow-float), inset 0 1px 0 rgba(255,255,255,.05); }
+}
+@keyframes cardIn {
+    from { opacity: 0; transform: translateY(14px) scale(.98); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 20px;
+    gap: 12px;
+}
+.brand { display: flex; align-items: center; gap: 12px; }
+.brand-icon {
+    width: 42px; height: 42px;
+    border-radius: 13px;
+    background: linear-gradient(135deg, var(--primary), var(--tertiary));
+    display: grid; place-items: center;
+    color: var(--on-primary);
+    box-shadow: var(--shadow-amb);
+    flex-shrink: 0;
+}
+.brand-icon svg { width: 20px; height: 20px; }
+h1 {
+    font-size: 17px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    color: var(--on-surface);
+}
+
+/* Settings panel */
+.settings-row {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    margin-bottom: 16px;
+}
+.field {
+    flex: 1;
+    min-width: 80px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.field-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--on-surface-variant);
+    padding-left: 4px;
+}
+.field input {
+    width: 100%;
+    height: 44px;
+    padding: 0 14px;
+    background: transparent;
+    border: 1px solid var(--outline-variant);
+    border-radius: 13px;
+    color: var(--on-surface);
+    font-family: inherit;
+    font-size: 15px;
+    font-variant-numeric: tabular-nums;
+    transition: border-color .2s var(--easing-std), box-shadow .2s var(--easing-std);
+}
+.field input:hover { border-color: var(--on-surface); }
+.field input:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 1px var(--primary);
+}
+
+/* Buttons */
+.btn {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    height: 44px;
+    border: none;
+    border-radius: 22px;
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    overflow: hidden;
+    transition: box-shadow .25s var(--easing-std), transform .2s var(--easing-std);
+    user-select: none;
+    padding: 0 20px;
+    white-space: nowrap;
+}
+.btn svg { width: 18px; height: 18px; flex-shrink: 0; }
+.btn:active { transform: scale(.985); }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+
+.btn-primary {
+    background: var(--primary);
+    color: var(--on-primary);
+    box-shadow: var(--shadow-key), 0 4px 14px color-mix(in srgb, var(--primary) 35%, transparent);
+}
+.btn-tonal {
+    background: var(--secondary-container);
+    color: var(--on-secondary-container);
+}
+.btn-filled {
+    background: var(--primary-container);
+    color: var(--on-primary-container);
+}
+
+.ripple {
+    position: absolute;
+    border-radius: 50%;
+    background: currentColor;
+    opacity: .28;
+    transform: scale(0);
+    animation: ripple .6s var(--easing-std);
+    pointer-events: none;
+}
+@keyframes ripple { to { transform: scale(4); opacity: 0; } }
+
+/* Chip */
+.chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 28px;
+    padding: 0 11px;
+    border-radius: 8px;
+    background: var(--surface-container-high);
+    color: var(--on-surface-variant);
+    font-size: 11px;
+    font-weight: 500;
+    border: 1px solid var(--outline-variant);
+    white-space: nowrap;
+}
+.chip .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--primary); }
+
+/* Info bar */
+.info-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+    padding: 10px 14px;
+    background: var(--surface-container);
+    border-radius: 14px;
+    font-size: 13px;
+    color: var(--on-surface-variant);
+}
+.info-row b { font-weight: 600; color: var(--on-surface); font-variant-numeric: tabular-nums; }
+.info-actions { display: flex; gap: 8px; }
+
+/* Grid area */
+.grid-wrap {
+    background: var(--surface-container);
+    border-radius: 22px;
+    padding: 20px;
+    overflow: auto;
+    max-height: 70vh;
+    position: relative;
+    isolation: isolate;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+}
+.grid-wrap::before {
+    content: '';
+    position: absolute; inset: 0;
+    background: radial-gradient(ellipse at top, color-mix(in srgb, var(--primary) 8%, transparent), transparent 60%);
+    z-index: -1;
+}
+.grid-empty {
+    text-align: center;
+    color: var(--outline-variant);
+    font-size: 14px;
+    font-weight: 500;
+    letter-spacing: .04em;
+    padding: 48px 0;
+}
+.grid {
+    display: grid;
+    gap: 5px;
+    justify-content: center;
+    margin: 0 auto;
+}
+
+/* Cell states */
+.cell {
+    aspect-ratio: 1;
+    border: 2px solid var(--cell-selected-border);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: clamp(11px, 1.8vw, 14px);
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    transition: all .18s var(--easing-std);
+    user-select: none;
+    background: var(--cell-selected);
+    color: var(--on-surface);
+    position: relative;
+}
+.cell:hover { transform: scale(1.06); z-index: 1; box-shadow: var(--shadow-amb); }
+.cell.deselected {
+    background: var(--cell-deselected);
+    border-color: var(--cell-deselected-border);
+    color: var(--outline-variant);
+}
+.cell.assigned {
+    background: var(--cell-assigned);
+    border-color: var(--cell-assigned-border);
+    color: var(--cell-assigned-text);
+    animation: cellPop .45s var(--easing-spring);
+}
+@keyframes cellPop {
+    0% { transform: scale(.7); }
+    60% { transform: scale(1.12); }
+    100% { transform: scale(1); }
+}
+
+.cell .seat-no {
+    position: absolute;
+    top: 3px;
+    left: 6px;
+    font-size: 9px;
+    font-weight: 400;
+    opacity: .55;
+    letter-spacing: 0;
+}
+.cell.deselected .seat-no { opacity: .25; }
+
+/* Toast */
+.toast {
+    position: fixed;
+    top: 24px;
+    left: 50%;
+    transform: translateX(-50%) translateY(-120%);
+    background: color-mix(in srgb, var(--on-surface) 92%, transparent);
+    color: var(--surface);
+    padding: 12px 20px;
+    border-radius: 999px;
+    font-size: 13px;
+    font-weight: 500;
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    box-shadow: var(--shadow-amb);
+    opacity: 0;
+    transition: all .35s var(--easing-spring);
+    z-index: 200;
+    max-width: 80vw;
+    text-align: center;
+}
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+.toast.error { background: var(--error); color: #fff; }
+
+@media (max-width: 640px) {
+    body { padding: 12px 8px; }
+    .card { padding: 16px 12px; border-radius: 28px; }
+    .settings-row { flex-direction: column; }
+    .field { min-width: 100%; }
+    .grid-wrap { padding: 10px; }
+    .cell .seat-no { font-size: 7px; top: 1px; left: 3px; }
+    .info-row { font-size: 11px; flex-wrap: wrap; gap: 4px; }
+    .info-actions { gap: 4px; }
+    .info-actions .btn { height: 28px; font-size: 11px; padding: 0 8px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .blob { animation: none; }
+    .cell.assigned { animation: none; }
+}
+</style>
+</head>
+<body>
+
+<div class="bg" aria-hidden="true">
+    <div class="blob b1"></div>
+    <div class="blob b2"></div>
+    <div class="blob b3"></div>
+</div>
+
+<div class="wrap">
+    <div class="card">
+        <div class="header">
+            <div class="brand">
+                <div class="brand-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="3" y="3" width="7" height="7" rx="1.2"/><rect x="14" y="3" width="7" height="7" rx="1.2"/>
+                        <rect x="3" y="14" width="7" height="7" rx="1.2"/><rect x="14" y="14" width="7" height="7" rx="1.2"/>
+                    </svg>
+                </div>
+                <div>
+                    <h1>随机排座位</h1>
+                </div>
+            </div>
+            <div class="chip" id="statusChip" style="display:none;">
+                <span class="dot"></span>
+                <span id="statusText">就绪</span>
+            </div>
+        </div>
+
+        <!-- Settings -->
+        <div class="settings-row">
+            <div class="field">
+                <span class="field-label">列数（宽）</span>
+                <input type="number" id="colsInput" value="7" min="1" max="20">
+            </div>
+            <div class="field">
+                <span class="field-label">行数（高）</span>
+                <input type="number" id="rowsInput" value="7" min="1" max="20">
+            </div>
+            <button class="btn btn-primary" id="btnGenerate" style="align-self:flex-end;">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/>
+                </svg>
+                生成座位表
+            </button>
+        </div>
+
+        <!-- Info bar -->
+        <div class="info-row" id="infoRow" style="display:none;">
+            <span>共 <b id="infoTotal">0</b> 座</span>
+            <span>已选 <b id="infoSelected">0</b></span>
+            <span>已分 <b id="infoAssigned">0</b></span>
+            <div class="info-actions">
+                <button class="btn btn-filled" id="btnSelectAll" style="height:32px;font-size:12px;padding:0 12px;">全选</button>
+                <button class="btn btn-tonal" id="btnInvert" style="height:32px;font-size:12px;padding:0 12px;">反选</button>
+                <button class="btn btn-tonal" id="btnClear" style="height:32px;font-size:12px;padding:0 12px;">清除分配</button>
+                <button class="btn btn-danger" id="btnReset" style="height:32px;font-size:12px;padding:0 12px;background:var(--error-container);color:var(--error);border-radius:22px;border:none;cursor:pointer;font-weight:600;">重置</button>
+                <button class="btn btn-primary" id="btnAssign" disabled style="height:32px;font-size:12px;padding:0 14px;">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;">
+                        <path d="M12 2L14.09 8.26 20.5 8.5 15.5 12.5 17.18 19 12 15.5 6.82 19 8.5 12.5 3.5 8.5 9.91 8.26z"/>
+                    </svg>
+                    随机安排
+                </button>
+            </div>
+        </div>
+
+        <!-- Grid -->
+        <div class="grid-wrap" id="gridWrap">
+            <div class="grid-empty">设置行列并点击「生成座位表」</div>
+        </div>
+    </div>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+
+let grid = null;
+let COLS = 0, ROWS = 0;
+
+// Toast
+(function(){
+    const el = $('toast');
+    let t;
+    window.toast = function(msg, isErr) {
+        el.textContent = msg;
+        el.classList.toggle('error', !!isErr);
+        el.classList.add('show');
+        clearTimeout(t);
+        t = setTimeout(() => el.classList.remove('show'), 2000);
+    };
+})();
+
+// Ripple
+function ripple(e) {
+    const btn = e.currentTarget;
+    if (btn.disabled) return;
+    const rect = btn.getBoundingClientRect();
+    const d = Math.max(rect.width, rect.height);
+    const x = (e.clientX ?? rect.left + rect.width/2) - rect.left - d/2;
+    const y = (e.clientY ?? rect.top  + rect.height/2) - rect.top  - d/2;
+    const r = document.createElement('span');
+    r.className = 'ripple';
+    r.style.cssText = `width:${d}px;height:${d}px;left:${x}px;top:${y}px`;
+    btn.appendChild(r);
+    setTimeout(() => r.remove(), 600);
+}
+document.querySelectorAll('.btn').forEach(b => b.addEventListener('pointerdown', ripple));
+
+// Session persistence
+async function api(action, extra = {}) {
+    const body = new URLSearchParams({ action, ...extra });
+    const res = await fetch('', { method: 'POST', body });
+    return res.json();
+}
+
+async function saveGrid() {
+    if (!grid) return;
+    await api('save', { cols: COLS, rows: ROWS, grid: JSON.stringify(grid) });
+}
+
+function debounceSave() {
+    clearTimeout(debounceSave._t);
+    debounceSave._t = setTimeout(saveGrid, 300);
+}
+
+// Shuffle (Fisher-Yates)
+function shuffle(arr) {
+    const a = [...arr];
+    for (let i = a.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+}
+
+// Create grid (fresh, no session)
+function createFreshGrid() {
+    COLS = Math.max(1, Math.min(20, +$('colsInput').value || 7));
+    ROWS = Math.max(1, Math.min(20, +$('rowsInput').value || 7));
+    $('colsInput').value = COLS;
+    $('rowsInput').value = ROWS;
+
+    grid = [];
+    for (let r = 0; r < ROWS; r++) {
+        grid[r] = [];
+        for (let c = 0; c < COLS; c++) {
+            grid[r][c] = { sel: true, id: null };
+        }
+    }
+    renderGrid();
+    updateInfo();
+    saveGrid();
+}
+
+$('btnGenerate').addEventListener('click', createFreshGrid);
+
+function calcCellSize() {
+    const maxW = window.innerWidth - 80;
+    const maxH = window.innerHeight * 0.6;
+    const byW = Math.floor(maxW / COLS);
+    const byH = Math.floor(maxH / ROWS);
+    return Math.max(32, Math.min(54, byW, byH));
+}
+
+function renderGrid() {
+    const wrap = $('gridWrap');
+    wrap.innerHTML = '';
+    const size = calcCellSize();
+    const g = document.createElement('div');
+    g.className = 'grid';
+    g.style.gridTemplateColumns = `repeat(${COLS}, ${size}px)`;
+    g.style.gridTemplateRows = `repeat(${ROWS}, ${size}px)`;
+
+    for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+            const cell = document.createElement('div');
+            cell.className = 'cell';
+            cell.dataset.r = r;
+            cell.dataset.c = c;
+            if (!grid[r][c].sel) cell.classList.add('deselected');
+            if (grid[r][c].id !== null) cell.classList.add('assigned');
+
+            const no = document.createElement('span');
+            no.className = 'seat-no';
+            no.textContent = r * COLS + c + 1;
+            cell.appendChild(no);
+
+            const idSpan = document.createElement('span');
+            idSpan.textContent = grid[r][c].id ?? '';
+            cell.appendChild(idSpan);
+
+            cell.addEventListener('click', () => {
+                grid[r][c].sel = !grid[r][c].sel;
+                if (!grid[r][c].sel) {
+                    cell.classList.add('deselected');
+                } else {
+                    cell.classList.remove('deselected');
+                }
+                updateInfo();
+                debounceSave();
+            });
+            g.appendChild(cell);
+        }
+    }
+    wrap.appendChild(g);
+}
+
+function updateInfo() {
+    const row = $('infoRow');
+    const chip = $('statusChip');
+    if (!grid) { row.style.display = 'none'; chip.style.display = 'none'; return; }
+    row.style.display = 'flex';
+    chip.style.display = 'inline-flex';
+
+    let sel = 0, assigned = 0;
+    for (let r = 0; r < ROWS; r++)
+        for (let c = 0; c < COLS; c++) {
+            if (grid[r][c].sel) sel++;
+            if (grid[r][c].id !== null) assigned++;
+        }
+
+    $('infoTotal').textContent = ROWS * COLS;
+    $('infoSelected').textContent = sel;
+    $('infoAssigned').textContent = assigned;
+
+    $('btnAssign').disabled = sel === 0;
+    $('statusText').textContent = assigned > 0 ? `已分配 ${assigned} 人` : '就绪';
+}
+
+$('btnSelectAll').addEventListener('click', () => {
+    if (!grid) return;
+    for (let r = 0; r < ROWS; r++)
+        for (let c = 0; c < COLS; c++)
+            grid[r][c].sel = true;
+    renderGrid();
+    updateInfo();
+    saveGrid();
+});
+
+$('btnClear').addEventListener('click', () => {
+    if (!grid) return;
+    for (let r = 0; r < ROWS; r++)
+        for (let c = 0; c < COLS; c++)
+            grid[r][c].id = null;
+    renderGrid();
+    updateInfo();
+    saveGrid();
+    toast('已清除所有分配');
+});
+
+$('btnInvert').addEventListener('click', () => {
+    if (!grid) return;
+    for (let r = 0; r < ROWS; r++)
+        for (let c = 0; c < COLS; c++)
+            grid[r][c].sel = !grid[r][c].sel;
+    renderGrid();
+    updateInfo();
+    saveGrid();
+});
+
+$('btnAssign').addEventListener('click', () => {
+    if (!grid) return;
+
+    const selected = [];
+    for (let r = 0; r < ROWS; r++)
+        for (let c = 0; c < COLS; c++)
+            if (grid[r][c].sel) selected.push([r,c]);
+
+    const ids = Array.from({length: selected.length}, (_,i) => i + 1);
+
+    for (let r = 0; r < ROWS; r++)
+        for (let c = 0; c < COLS; c++)
+            grid[r][c].id = null;
+
+    const shuffled = shuffle(ids);
+    for (let i = 0; i < selected.length; i++) {
+        const [r, c] = selected[i];
+        grid[r][c].id = shuffled[i];
+    }
+
+    renderGrid();
+    updateInfo();
+    saveGrid();
+    toast(`已随机分配 ${selected.length} 个学号`);
+});
+
+$('btnReset').addEventListener('click', async () => {
+    await api('reset');
+    grid = null;
+    COLS = 0; ROWS = 0;
+    $('colsInput').value = 7;
+    $('rowsInput').value = 7;
+    $('gridWrap').innerHTML = '<div class="grid-empty">设置行列并点击「生成座位表」</div>';
+    $('infoRow').style.display = 'none';
+    $('statusChip').style.display = 'none';
+    toast('已重置');
+});
+
+// Init: auto-generate on Enter in inputs
+['colsInput','rowsInput'].forEach(id => {
+    $(id).addEventListener('keydown', e => { if (e.key === 'Enter') $('btnGenerate').click(); });
+});
+
+// Re-render on resize (cell size adjusts)
+window.addEventListener('resize', () => {
+    if (grid) renderGrid();
+});
+
+// Page load: restore from session, or auto-generate
+(async function init() {
+    const r = await api('load');
+    if (r.ok && r.grid) {
+        COLS = r.cols;
+        ROWS = r.rows;
+        grid = r.grid;
+        $('colsInput').value = COLS;
+        $('rowsInput').value = ROWS;
+        renderGrid();
+        updateInfo();
+        return;
+    }
+    // No session data, auto-generate default
+    $('btnGenerate').click();
+})();
+</script>
+</body>
+</html>
