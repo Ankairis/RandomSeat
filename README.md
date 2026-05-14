@@ -30,17 +30,17 @@ php -S localhost:787 -t . random_seat.php
 
 ## 部署 / Deploy
 
-### Cloudflare Pages
+### GitHub Pages
 
-Fork 此仓库，在 CF Pages 关联 GitHub 仓库：
+1. 仓库 Settings → Pages → Source: **Deploy from branch**
+2. Branch: `main`, folder: `/ (root)`
+3. Custom domain: 填入 `seat.iriz.top`
+4. GitHub 会自动生成 CNAME 文件并配 SSL
+5. 以后每次 push 到 main 自动重新部署
 
-1. CF Dashboard → Pages → Create a project → Connect to GitHub
-2. 选择 `Ankairis/RandomSeat`
-3. Build command: `sed -i "s/__GIT_HASH__/$(git rev-parse HEAD)/" index.html`
-4. Build output: `.`
-5. 部署完成后页面底部显示当前 commit hash
-
-也可用 GitHub Actions（`.github/workflows/deploy.yml`），需在仓库设置添加 `CF_API_TOKEN` secret。
+DNS 已配好：
+- `seat.iriz.top` → `ankairis.github.io` (CF proxied)
+- `seat.irix.top` → `ankairis.github.io` (DNS only)
 
 ### 验证代码一致性
 
