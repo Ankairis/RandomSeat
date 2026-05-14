@@ -528,8 +528,8 @@ function ripple(e) {
 document.querySelectorAll('.btn').forEach(b => b.addEventListener('pointerdown', ripple));
 
 // Version hash (injected by CI)
-var GIT_HASH = '__GIT_HASH__';
-if (GIT_HASH && GIT_HASH !== '__GIT_HASH__') {
+var GIT_HASH = 'a80778423c3dd6ff64db604a97c618ec953ed106';
+if (GIT_HASH && GIT_HASH !== 'a80778423c3dd6ff64db604a97c618ec953ed106') {
     $('versionHash').textContent = GIT_HASH.slice(0, 7);
 }
 
