@@ -32,8 +32,7 @@ php -S localhost:787 -t . random_seat.php
 
 Push 到 `main` → GitHub Actions 自动部署到 Pages，并注入 commit hash。
 
-- `https://seat.iriz.top` — CDN ON (proxied)
-- `https://seat.irix.top` — CDN OFF (DNS only)
+访问：`https://ankairis.github.io/RandomSeat/`
 
 ### 验证代码一致性
 
