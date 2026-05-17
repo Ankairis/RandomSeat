@@ -30,17 +30,10 @@ php -S localhost:787 -t . random_seat.php
 
 ## 部署 / Deploy
 
-### GitHub Pages
+Push 到 `main` → GitHub Actions 自动部署到 Pages，并注入 commit hash。
 
-1. 仓库 Settings → Pages → Source: **Deploy from branch**
-2. Branch: `main`, folder: `/ (root)`
-3. Custom domain: 填入 `seat.iriz.top`
-4. GitHub 会自动生成 CNAME 文件并配 SSL
-5. 以后每次 push 到 main 自动重新部署
-
-DNS 已配好：
-- `seat.iriz.top` → `ankairis.github.io` (CF proxied)
-- `seat.irix.top` → `ankairis.github.io` (DNS only)
+- `https://seat.iriz.top` — CDN ON (proxied)
+- `https://seat.irix.top` — CDN OFF (DNS only)
 
 ### 验证代码一致性
 
